@@ -1,0 +1,41 @@
+{
+  "key": "line_07_003",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            10,
+            200
+          ],
+          [
+            200,
+            210
+          ],
+          [
+            500,
+            220
+          ]
+        ]
+      },
+      "properties": {
+        "label": "bed"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          350,
+          180
+        ]
+      },
+      "properties": {
+        "label": "point_of_interest"
+      }
+    }
+  ]
+}

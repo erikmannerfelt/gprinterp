@@ -1,0 +1,75 @@
+{
+  "schema": "gprinterp",
+  "schema_version": "0.1",
+  "key": "line_07_003",
+  "date_modified": "2026-02-27T16:19:19+01:00",
+  "source": {
+    "id": "line_07_003",
+    "n_traces": 1200,
+    "n_samples": 2048
+  },
+  "coordinates": {
+    "space": "index2d",
+    "convention": {
+      "origin": "upper-left",
+      "indexing": "zero-based",
+      "pixel_reference": "center",
+      "axis_directions": {
+        "x": "right",
+        "y": "down"
+      }
+    },
+    "axes": {
+      "x": {
+        "primary": {
+          "name": "trace_index",
+          "unit": "index"
+        }
+      },
+      "y": {
+        "primary": {
+          "name": "sample_index",
+          "unit": "index"
+        },
+        "fallback": [
+          {
+            "name": "twtt",
+            "unit": "ns",
+            "type": "regular",
+            "t0": -12.0,
+            "dt": 0.4
+          }
+        ]
+      }
+    }
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            10,
+            200
+          ],
+          [
+            200,
+            210
+          ],
+          [
+            500,
+            220
+          ]
+        ]
+      },
+      "properties": {
+        "label": "bed",
+        "kind": "horizon"
+      }
+    }
+  ],
+  "meta": {
+    "note": "properties.kind is MAY; label is SHOULD."
+  }
+}
