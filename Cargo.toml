@@ -1,0 +1,27 @@
+[package]
+name = "gprinterp"
+version = "0.1.0"
+edition = "2021"
+description = "Reference implementation of the gprinterp GPR interpretation exchange format"
+license-file = "LICENSE"
+readme = "README.md"
+repository = "https://github.com/erikmannerfelt/gprinterp"
+keywords = ["gpr", "radar", "geojson", "interpretation"]
+categories = ["science", "parser-implementations"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+clap = { version = "4.5", features = ["derive"], optional = true }
+
+[features]
+default = []
+# `gprinterp validate <FILE>`: a hand-testing and regression harness for the
+# spec. The library is the product; this exists so a document can be checked
+# without writing a scratch program.
+cli = ["clap"]
+
+[[bin]]
+name = "gprinterp"
+path = "src/bin/gprinterp.rs"
+required-features = ["cli"]
