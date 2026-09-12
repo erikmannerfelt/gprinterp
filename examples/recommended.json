@@ -5,6 +5,7 @@
   "date_modified": "2026-02-27T16:19:19+01:00",
   "source": {
     "id": "line_07_003",
+    "revision_id": "9f2c1ab4e7d05836",
     "n_traces": 1200,
     "n_samples": 2048
   },
@@ -24,14 +25,48 @@
         "primary": {
           "name": "trace_index",
           "unit": "index"
-        }
+        },
+        "anchor": [
+          {
+            "name": "original_trace",
+            "unit": "index",
+            "type": "tiepoints",
+            "interpolation": "linear",
+            "points": [
+              {
+                "trace": 0,
+                "x": 340
+              },
+              {
+                "trace": 1199,
+                "x": 1539
+              }
+            ]
+          },
+          {
+            "name": "trace_time",
+            "unit": "s",
+            "type": "tiepoints",
+            "interpolation": "linear",
+            "points": [
+              {
+                "trace": 0,
+                "x": 1677501559.0
+              },
+              {
+                "trace": 1199,
+                "x": 1677502104.5
+              }
+            ]
+          }
+        ]
       },
       "y": {
         "primary": {
           "name": "sample_index",
           "unit": "index"
         },
-        "fallback": [
+        "anchor": [
           {
             "name": "twtt",
             "unit": "ns",
@@ -50,26 +85,48 @@
         "type": "LineString",
         "coordinates": [
           [
-            10,
-            200
+            10.5,
+            200.0
           ],
           [
-            200,
-            210
+            200.25,
+            210.75
           ],
           [
-            500,
-            220
+            500.0,
+            220.0
           ]
         ]
       },
       "properties": {
+        "id": "f-0001",
+        "label": "bed",
+        "kind": "horizon"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            620.0,
+            244.0
+          ],
+          [
+            880.0,
+            251.5
+          ]
+        ]
+      },
+      "properties": {
+        "id": "f-0002",
         "label": "bed",
         "kind": "horizon"
       }
     }
   ],
   "meta": {
-    "note": "properties.kind is MAY; label is SHOULD."
+    "note": "Both features share label 'bed': two physically separate lines of one interpreted layer."
   }
 }
