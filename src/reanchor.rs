@@ -90,7 +90,20 @@ impl std::error::Error for ReanchorError {}
 pub const X_ANCHOR_PREFERENCE: [&str; 2] = ["original_trace", "trace_time"];
 
 /// Preference order for `y` anchors (SPEC §8.2).
-pub const Y_ANCHOR_PREFERENCE: [&str; 1] = ["twtt"];
+///
+/// The two are different physical quantities, not two names for one:
+/// `twtt` is what a separated source and receiver recorded, and
+/// `twtt_normal_incidence` is what a coincident pair would have. A
+/// revision that has had antenna-separation correction applied sits on the
+/// second; one that has not sits on the first.
+///
+/// `twtt_normal_incidence` comes first because where both are present it
+/// is the grid the data actually occupies, while `twtt` on a corrected
+/// revision is derived back out of it. Where only one is shared the order
+/// does not arise — and when neither is, §8.1's refusal is exactly right,
+/// because interpolating between the two would be silently wrong rather
+/// than approximate.
+pub const Y_ANCHOR_PREFERENCE: [&str; 2] = ["twtt_normal_incidence", "twtt"];
 
 /// What re-anchoring did.
 #[derive(Debug, Clone, PartialEq)]
