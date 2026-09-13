@@ -434,3 +434,31 @@ fn a_corrected_revision_that_also_emits_twtt_can_be_reanchored() {
     // 20 samples x 0.4 ns = 8 ns, which is sample 16 at 0.5 ns.
     assert_line_close(&outcome.document, &[(10.0, 16.0)]);
 }
+
+/// Where both revisions offer both `y` anchors, `twtt_normal_incidence`
+/// wins (SPEC §8.2) — and the two anchors are rigged to disagree, so
+/// reversing `Y_ANCHOR_PREFERENCE` fails this test rather than passing it
+/// by coincidence.
+///
+/// Two revisions corrected with different velocities land on the same
+/// normal-incidence grid while relating it to recorded time differently,
+/// which is what makes the two routes give different answers here.
+#[test]
+fn normal_incidence_is_preferred_where_both_anchors_are_shared() {
+    let drawn_on_a = document(
+        vec![trace_time(1000.0, 100.0, 0.1)],
+        vec![twtt_normal_incidence(0.0, 0.4), twtt(0.0, 0.5)],
+        &[[10.0, 20.0]],
+    );
+    let b = RevisionAxes {
+        x: vec![trace_time(1000.0, 100.0, 0.1)],
+        y: vec![twtt_normal_incidence(0.0, 0.4), twtt(0.0, 0.25)],
+    };
+
+    let outcome = reanchor::reanchor(&drawn_on_a, &b).expect("both axes are shared");
+    assert_eq!(outcome.y_anchor, "twtt_normal_incidence");
+    // Through normal incidence: 20 x 0.4 ns = 8 ns, which is sample 20 of
+    // B's identical grid. Through twtt it would have been 10 ns and
+    // sample 40, so the assertion below distinguishes the two routes.
+    assert_line_close(&outcome.document, &[(10.0, 20.0)]);
+}
