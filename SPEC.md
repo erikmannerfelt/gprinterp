@@ -361,16 +361,26 @@ For `x`, in decreasing order of preference:
 | `original_trace` | `index` | Any operation that selects or reorders whole traces: subsetting, trace removal, cropping | The traces were resampled, stacked, or interpolated onto a new grid; or the radargram concatenates several acquisition files without a globally monotone renumbering |
 | `trace_time` | `s` (epoch seconds) | All of the above, plus resampling and stacking, which interpolate time meaningfully | The instrument recorded no timing |
 
-For `y`:
+For `y`, in decreasing order of preference:
 
 | `name` | Unit | Notes |
 |---|---|---|
-| `twtt` | `ns` | Two-way travel time. See §8.3 for its limits. |
+| `twtt_normal_incidence` | `ns` | Normal-incidence (zero-offset) two-way travel time: the time a coincident source and receiver would have recorded. Produced by antenna-separation / NMO correction, which resamples onto this quantity. |
+| `twtt` | `ns` | Two-way travel time as recorded, between a source and a receiver separated by the antenna offset. See §8.3. |
 
-Producers SHOULD emit at least one `x` anchor axis and SHOULD emit `twtt` for
-`y`. Producers that can emit both `x` anchors SHOULD do so; the two degrade
-in different circumstances, and a consumer picks whichever both revisions
-share.
+The two are different physical quantities and MUST NOT be treated as
+interchangeable. A revision that has had antenna-separation correction
+applied does not share a `y` anchor with one that has not, unless it also
+emits `twtt` per §8.3.
+
+`twtt_normal_incidence` is preferred where both are present because it is
+the grid the corrected data actually sits on, rather than a quantity
+derived back out of it.
+
+Producers SHOULD emit at least one `x` anchor axis and SHOULD emit a `y`
+anchor. Producers that can emit both `x` anchors SHOULD do so; the two
+degrade in different circumstances, and a consumer picks whichever both
+revisions share.
 
 `original_trace` is preferred where valid because it is an exact integer
 identity rather than an interpolated physical quantity, and because it is
@@ -388,10 +398,26 @@ alone does not fully capture:
   conforming producer avoids this by reporting the true offset in `t0`
   (§7.5.1), but a producer that does not track it cannot.
 - **Antenna-separation correction** resamples the data onto a uniform
-  *depth* grid. After it, `twtt` denotes vertical-equivalent travel time
-  rather than recorded travel time. A revision with the correction and one
-  without do not share a `y` anchor axis at all, even though both label it
-  `twtt`.
+  *depth* grid. After it, a sample index denotes normal-incidence travel
+  time rather than recorded travel time. These are different quantities,
+  and a producer MUST name the corrected axis `twtt_normal_incidence`
+  rather than `twtt`.
+
+  Naming it correctly is what makes the difference detectable. Both
+  quantities are linear in sample index and both take plausible values, so
+  an axis labelled `twtt` on each side gives a consumer every reason to
+  re-anchor and no way to notice it should not. Distinct names mean §8.1's
+  no-shared-anchor rule applies by itself, with no further machinery.
+
+  A producer that applies the correction **SHOULD additionally emit
+  `twtt`** where it can compute the recorded travel time each corrected
+  sample corresponds to — which it can, from the antenna separation and
+  the medium velocity it used for the correction. Doing so restores a
+  shared anchor with uncorrected revisions and turns an otherwise
+  unresolvable case into an ordinary one. Such an axis is a true statement
+  about where the samples sit in recorded-time space; it is not
+  `synthetic` in the §8.4 sense, which concerns fabricated values rather
+  than derived ones.
 
 Consumers SHOULD warn whenever `y` is re-anchored across differing
 `revision_id`s, and MUST NOT present a re-anchored `y` as exact.

@@ -39,6 +39,19 @@ fn twtt(t0: f64, dt: f64) -> AnchorAxis {
     }
 }
 
+/// The `y` anchor a revision has after antenna-separation correction: the
+/// same shape as `twtt`, denoting a different physical quantity.
+fn twtt_normal_incidence(t0: f64, dt: f64) -> AnchorAxis {
+    AnchorAxis {
+        name: "twtt_normal_incidence".into(),
+        unit: Some("ns".into()),
+        type_: Some("regular".into()),
+        t0: Some(t0),
+        dt: Some(dt),
+        ..Default::default()
+    }
+}
+
 fn trace_time(first: f64, n: f64, per_trace: f64) -> AnchorAxis {
     AnchorAxis {
         name: "trace_time".into(),
@@ -327,4 +340,97 @@ fn an_unusable_mapping_is_skipped_in_favour_of_a_usable_one() {
     };
 
     assert_eq!(reanchor(&doc, &target).unwrap().x_anchor, "trace_time");
+}
+
+/// An antenna-separation-corrected revision does not share a `y` anchor
+/// with an uncorrected one, and the refusal is what keeps the picks honest.
+///
+/// Both axes are linear in sample index and both hold plausible
+/// nanosecond values, so nothing in the *numbers* distinguishes them. Had
+/// the corrected revision kept the name `twtt`, this would re-anchor
+/// happily and be wrong by the antenna geometry — silently, since the
+/// output would look entirely reasonable. The distinct name is the whole
+/// mechanism.
+#[test]
+fn a_corrected_revision_shares_no_y_anchor_with_an_uncorrected_one() {
+    let drawn_on_uncorrected = document(
+        vec![trace_time(1000.0, 100.0, 0.1)],
+        vec![twtt(0.0, 0.4)],
+        &[[10.0, 20.0], [50.0, 30.0]],
+    );
+    let corrected = RevisionAxes {
+        x: vec![trace_time(1000.0, 100.0, 0.1)],
+        y: vec![twtt_normal_incidence(0.0, 0.4)],
+    };
+
+    match reanchor::reanchor(&drawn_on_uncorrected, &corrected) {
+        Err(ReanchorError::NoSharedAnchor { axis, .. }) => assert_eq!(axis, "y"),
+        other => panic!("expected the y axes to be incompatible, got {other:?}"),
+    }
+
+    // And the mirror: picks drawn on the corrected revision cannot be
+    // carried back onto the uncorrected one either.
+    let drawn_on_corrected = document(
+        vec![trace_time(1000.0, 100.0, 0.1)],
+        vec![twtt_normal_incidence(0.0, 0.4)],
+        &[[10.0, 20.0]],
+    );
+    let uncorrected = RevisionAxes {
+        x: vec![trace_time(1000.0, 100.0, 0.1)],
+        y: vec![twtt(0.0, 0.4)],
+    };
+    assert!(matches!(
+        reanchor::reanchor(&drawn_on_corrected, &uncorrected),
+        Err(ReanchorError::NoSharedAnchor { axis: "y", .. })
+    ));
+}
+
+/// Two corrected revisions re-anchor through `twtt_normal_incidence`
+/// normally, so the new name costs nothing where it is shared.
+#[test]
+fn two_corrected_revisions_reanchor_through_normal_incidence() {
+    // B cropped 10 leading samples, which `t0` records.
+    let drawn_on_a = document(
+        vec![trace_time(1000.0, 100.0, 0.1)],
+        vec![twtt_normal_incidence(0.0, 0.4)],
+        &[[10.0, 20.0], [50.0, 30.0]],
+    );
+    let b = RevisionAxes {
+        x: vec![trace_time(1000.0, 100.0, 0.1)],
+        y: vec![twtt_normal_incidence(4.0, 0.4)],
+    };
+
+    let outcome = reanchor::reanchor(&drawn_on_a, &b).expect("shared anchor on both axes");
+    assert_eq!(outcome.y_anchor, "twtt_normal_incidence");
+    assert_line_close(&outcome.document, &[(10.0, 10.0), (50.0, 20.0)]);
+}
+
+/// A corrected revision that also emits `twtt` (SPEC §8.3) regains a shared
+/// anchor with an uncorrected one.
+///
+/// This is the case the SHOULD in §8.3 exists for: the producer knows the
+/// antenna separation and the velocity it corrected with, so it can say
+/// where each corrected sample sits in recorded-time space, and an
+/// otherwise unresolvable pair becomes ordinary.
+#[test]
+fn a_corrected_revision_that_also_emits_twtt_can_be_reanchored() {
+    let drawn_on_uncorrected = document(
+        vec![trace_time(1000.0, 100.0, 0.1)],
+        vec![twtt(0.0, 0.4)],
+        &[[10.0, 20.0]],
+    );
+    let corrected_but_honest = RevisionAxes {
+        x: vec![trace_time(1000.0, 100.0, 0.1)],
+        // Its own grid, plus where those samples fall in recorded time.
+        y: vec![twtt_normal_incidence(0.0, 0.4), twtt(0.0, 0.5)],
+    };
+
+    let outcome =
+        reanchor::reanchor(&drawn_on_uncorrected, &corrected_but_honest).expect("twtt is shared");
+    assert_eq!(
+        outcome.y_anchor, "twtt",
+        "the only anchor both sides offer is the recorded one"
+    );
+    // 20 samples x 0.4 ns = 8 ns, which is sample 16 at 0.5 ns.
+    assert_line_close(&outcome.document, &[(10.0, 16.0)]);
 }
