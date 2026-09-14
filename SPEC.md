@@ -367,8 +367,9 @@ For `y`, in decreasing order of preference:
 |---|---|---|
 | `twtt_normal_incidence` | `ns` | Normal-incidence (zero-offset) two-way travel time: the time a coincident source and receiver would have recorded. Produced by antenna-separation / NMO correction, which resamples onto this quantity. |
 | `twtt` | `ns` | Two-way travel time as recorded, between a source and a receiver separated by the antenna offset. See §8.3. |
+| `recording_time` | `ns` | Time on the original recording's clock, measured from the first sample the instrument wrote. **Not** travel time: its origin is wherever the instrument happened to trigger, not the transmitted pulse. See §8.5. |
 
-The two are different physical quantities and MUST NOT be treated as
+The first two are different physical quantities and MUST NOT be treated as
 interchangeable. A revision that has had antenna-separation correction
 applied does not share a `y` anchor with one that has not, unless it also
 emits `twtt` per §8.3.
@@ -387,6 +388,10 @@ identity rather than an interpolated physical quantity, and because it is
 available for archival data that carries no timing at all. It is the weaker
 choice precisely where trace identity stops being meaningful — after
 resampling — which is where `trace_time` remains well defined.
+
+`recording_time` is last because it is not a physical quantity of the
+subsurface at all. It is preferred over *nothing*, and that is the case it
+exists for: see §8.5.
 
 ### 8.3 Limits of `twtt` as a `y` anchor
 
@@ -433,6 +438,43 @@ is indistinguishable from a recorded one and will be trusted across
 revisions where it carries no information. Consumers MUST NOT re-anchor
 across revisions using a synthetic axis unless the same synthesis rule
 demonstrably applies to both.
+
+### 8.5 `recording_time`, and revisions that never located time zero
+
+A radargram on which no time-zero correction has run has no travel-time
+axis at all. Its samples are counted from wherever the instrument began
+writing, which is an arbitrary trigger — so it cannot emit `twtt`, and a
+producer that emits one anyway is asserting a physical quantity it does
+not have.
+
+This is not an exotic state. It is every radargram between acquisition and
+the first correction, and reprocessing frequently produces a pair where one
+side has been corrected and the other has not. Without a shared anchor such
+a pair cannot be related, and §8.1 correctly refuses — yet the two are
+*perfectly* relatable, because both know where their first sample sits on
+the original recording's clock.
+
+`recording_time` is that clock. A revision that crops `c` nanoseconds from
+the front of the record emits `t0 = c`, whatever it knows or does not know
+about time zero, and two revisions of one recording are then related
+exactly.
+
+Two constraints follow, and both are load-bearing:
+
+- `recording_time` is comparable **only between revisions of the same
+  original recording**. Its origin is an instrument trigger, not a physical
+  event, so values from two separate acquisitions mean nothing to each
+  other. Consumers relating revisions of a single radargram id are within
+  this constraint; anything else is not.
+- It is **last** in the preference order. Where a genuine travel-time
+  anchor is shared, that is the one to use: it is invariant under
+  operations that change the crop, which `recording_time` is not. Using
+  `recording_time` where `twtt` was available would relate two revisions
+  by a coincidence of cropping rather than by physics.
+
+A consumer re-anchoring through `recording_time` MUST treat the result the
+way §8.3 requires for `twtt`: the coordinates are placed correctly, and any
+depth or travel time read off them is not.
 
 ---
 

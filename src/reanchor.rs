@@ -103,7 +103,17 @@ pub const X_ANCHOR_PREFERENCE: [&str; 2] = ["original_trace", "trace_time"];
 /// does not arise — and when neither is, §8.1's refusal is exactly right,
 /// because interpolating between the two would be silently wrong rather
 /// than approximate.
-pub const Y_ANCHOR_PREFERENCE: [&str; 2] = ["twtt_normal_incidence", "twtt"];
+///
+/// `recording_time` is last, and is not a travel time at all: it is the
+/// original recording's clock, whose origin is wherever the instrument
+/// triggered. It relates two revisions of one recording exactly — including
+/// the common case where one has had a time-zero correction and the other
+/// has not, which share no travel-time axis and would otherwise be
+/// unrelatable — and it relates nothing else. Preferring it over `twtt`
+/// would relate two revisions by a coincidence of cropping rather than by
+/// physics. See SPEC §8.5.
+pub const Y_ANCHOR_PREFERENCE: [&str; 3] =
+    ["twtt_normal_incidence", "twtt", "recording_time"];
 
 /// What re-anchoring did.
 #[derive(Debug, Clone, PartialEq)]
