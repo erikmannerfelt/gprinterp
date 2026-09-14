@@ -462,3 +462,106 @@ fn normal_incidence_is_preferred_where_both_anchors_are_shared() {
     // sample 40, so the assertion below distinguishes the two routes.
     assert_line_close(&outcome.document, &[(10.0, 20.0)]);
 }
+
+/// Build a document on one `y` anchor and re-anchor it onto another.
+fn document_on(y_anchors: serde_json::Value, points: &[[f64; 2]]) -> gprinterp::Document {
+    serde_json::from_value(serde_json::json!({
+        "key": "line-01",
+        "coordinates": {"space": "index", "axes": {
+            "x": {"anchor": [{"name": "trace_time", "unit": "s",
+                              "type": "regular", "t0": 0.0, "dt": 1.0}]},
+            "y": y_anchors,
+        }},
+        "features": [{
+            "type": "Feature",
+            "geometry": {"type": "LineString", "coordinates": points},
+            "properties": {"id": "f-0001", "label": "bed"}
+        }]
+    }))
+    .unwrap()
+}
+
+fn axis(name: &str, t0: f64, dt: f64) -> gprinterp::AnchorAxis {
+    serde_json::from_value(serde_json::json!({
+        "name": name, "unit": "ns", "type": "regular", "t0": t0, "dt": dt
+    }))
+    .unwrap()
+}
+
+#[test]
+fn a_corrected_and_an_uncorrected_revision_relate_through_the_recording_clock() {
+    // The case §8.5 exists for, from real data: one revision has had a
+    // time-zero correction and the other has not, so they share no
+    // travel-time axis at all. Refusing would be correct and useless --
+    // both know exactly where their first sample sits on the original
+    // recording's clock, so they are perfectly relatable through it.
+    //
+    // Corrected: 50.7572 ns cropped from the front, time zero located
+    // there, so its `twtt` starts at 0 and its `recording_time` at 50.7572.
+    // Uncorrected: nothing cropped, time zero unknown, `recording_time`
+    // starts at 0 and there is no `twtt`.
+    let dt = 1.586162;
+    let corrected = document_on(
+        serde_json::json!({"anchor": [
+            {"name": "twtt", "unit": "ns", "type": "regular", "t0": 0.0, "dt": dt},
+            {"name": "recording_time", "unit": "ns", "type": "regular", "t0": 50.7572, "dt": dt},
+        ]}),
+        &[[10.0, 700.0], [40.0, 900.0]],
+    );
+    let uncorrected = gprinterp::RevisionAxes {
+        x: vec![serde_json::from_value(serde_json::json!({
+            "name": "trace_time", "unit": "s", "type": "regular", "t0": 0.0, "dt": 1.0
+        }))
+        .unwrap()],
+        y: vec![axis("recording_time", 0.0, dt)],
+    };
+
+    let out = gprinterp::reanchor(&corrected, &uncorrected).expect("relatable");
+    assert_eq!(out.y_anchor, "recording_time");
+    assert!(out.dropped.is_empty());
+
+    // 50.7572 / 1.586162 = 32 samples, so every pick moves down by 32.
+    // The tolerance is 1e-4 rather than 1e-9 because the crop and the
+    // sample interval here are the file's own values rounded to six
+    // figures, which puts the quotient at 32.0000063 -- a property of the
+    // literals in this test, not of the arithmetic being checked.
+    let positions = out.document.features[0].geometry.positions();
+    assert!(
+        (positions[0].y().unwrap() - 732.0).abs() < 1e-4,
+        "{:?}",
+        positions[0].y()
+    );
+    assert!((positions[1].y().unwrap() - 932.0).abs() < 1e-4);
+    // And x is untouched, because nothing about the traces changed.
+    assert!((positions[0].x().unwrap() - 10.0).abs() < 1e-9);
+}
+
+#[test]
+fn a_shared_travel_time_axis_is_preferred_over_the_recording_clock() {
+    // `recording_time` relates revisions by a coincidence of cropping.
+    // Where both sides know their travel time, that is the real physics
+    // and must win -- otherwise two revisions cropped identically but
+    // corrected differently would look identical.
+    let dt = 1.0;
+    let doc = document_on(
+        serde_json::json!({"anchor": [
+            {"name": "twtt", "unit": "ns", "type": "regular", "t0": 0.0, "dt": dt},
+            {"name": "recording_time", "unit": "ns", "type": "regular", "t0": 50.0, "dt": dt},
+        ]}),
+        &[[10.0, 100.0]],
+    );
+    let target = gprinterp::RevisionAxes {
+        x: vec![serde_json::from_value(serde_json::json!({
+            "name": "trace_time", "unit": "s", "type": "regular", "t0": 0.0, "dt": 1.0
+        }))
+        .unwrap()],
+        // Same crop, different time zero: the two disagree about travel
+        // time by 20 ns and agree about the clock exactly.
+        y: vec![axis("twtt", 20.0, dt), axis("recording_time", 50.0, dt)],
+    };
+
+    let out = gprinterp::reanchor(&doc, &target).expect("relatable");
+    assert_eq!(out.y_anchor, "twtt", "physics over cropping");
+    let y = out.document.features[0].geometry.positions()[0].y().unwrap();
+    assert!((y - 80.0).abs() < 1e-9, "carried through twtt: {y}");
+}
