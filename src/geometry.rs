@@ -213,3 +213,97 @@ impl Serialize for Geometry {
         out.serialize(serializer)
     }
 }
+
+/// Hand-written schemas, because the serde they describe is hand-written.
+#[cfg(feature = "utoipa")]
+mod schema {
+    use serde_json::json;
+    use utoipa::openapi::{schema::Schema, RefOr};
+    use utoipa::{PartialSchema, ToSchema};
+
+    use super::{Geometry, Position};
+
+    /// The geometry types modelled here, as `type` spells them.
+    const KNOWN: [&str; 7] = [
+        "Point",
+        "MultiPoint",
+        "LineString",
+        "MultiLineString",
+        "Polygon",
+        "MultiPolygon",
+        "GeometryCollection",
+    ];
+
+    fn schema_from(value: serde_json::Value) -> RefOr<Schema> {
+        RefOr::T(serde_json::from_value(value).expect("a hand-written schema is valid"))
+    }
+
+    impl PartialSchema for Position {
+        fn schema() -> RefOr<Schema> {
+            schema_from(json!({
+                "type": "array",
+                "items": {"type": "number"},
+                "minItems": 2,
+                "description": "A GeoJSON position: `[x, y]` in index space (SPEC §7.1), \
+                                trace index then sample index. Further elements are kept."
+            }))
+        }
+    }
+
+    impl ToSchema for Position {}
+
+    impl PartialSchema for Geometry {
+        fn schema() -> RefOr<Schema> {
+            let position = json!({"$ref": "#/components/schemas/Position"});
+            let array_of = |items: serde_json::Value| json!({"type": "array", "items": items});
+            let shape = |name: &str, coordinates: serde_json::Value| {
+                json!({
+                    "type": "object",
+                    "required": ["type", "coordinates"],
+                    "properties": {
+                        "type": {"type": "string", "enum": [name]},
+                        "coordinates": coordinates
+                    }
+                })
+            };
+            let line = array_of(position.clone());
+            let rings = array_of(line.clone());
+            schema_from(json!({
+                "description": "A GeoJSON geometry (SPEC §4.3). A geometry of a type not \
+                                listed here is kept verbatim rather than rejected.",
+                "oneOf": [
+                    shape("Point", position.clone()),
+                    shape("MultiPoint", line.clone()),
+                    shape("LineString", line.clone()),
+                    shape("MultiLineString", rings.clone()),
+                    shape("Polygon", rings.clone()),
+                    shape("MultiPolygon", array_of(rings)),
+                    {
+                        "type": "object",
+                        "required": ["type", "geometries"],
+                        "properties": {
+                            "type": {"type": "string", "enum": ["GeometryCollection"]},
+                            "geometries": array_of(json!({"$ref": "#/components/schemas/Geometry"}))
+                        }
+                    },
+                    {
+                        "type": "object",
+                        "description": "Any other geometry, kept as it is.",
+                        "properties": {
+                            "type": {
+                                "type": "string",
+                                "pattern": format!("^(?!({})$)", KNOWN.join("|"))
+                            }
+                        }
+                    }
+                ]
+            }))
+        }
+    }
+
+    impl ToSchema for Geometry {
+        fn schemas(schemas: &mut Vec<(String, RefOr<Schema>)>) {
+            schemas.push((Position::name().into(), Position::schema()));
+        }
+    }
+}

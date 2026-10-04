@@ -40,6 +40,15 @@
 //! assert_eq!(layers[0].0, Some("bed"));
 //! ```
 //!
+//! # Features
+//!
+//! - `cli`: the `gprinterp validate <FILE>` command.
+//! - `utoipa`: [`utoipa::ToSchema`](https://docs.rs/utoipa) for [`Document`]
+//!   and every type in it, so a server whose API carries gprinterp documents
+//!   can describe them in its OpenAPI description. The schemas describe what
+//!   this crate writes: objects allow further properties (SPEC §3.3), and a
+//!   geometry of a type not modelled here is accepted as it is (SPEC §4.3).
+//!
 //! [gprinterp]: https://github.com/erikmannerfelt/gprinterp
 
 pub mod document;

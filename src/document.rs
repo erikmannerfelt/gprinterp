@@ -15,6 +15,7 @@ use crate::mapping::{Mapping, MappingError, Tiepoint};
 
 /// A gprinterp document (SPEC §3).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct Document {
     /// Uniquely identifies the target radargram within the producer's scope.
     pub key: String,
@@ -95,6 +96,7 @@ impl Document {
 
 /// A GeoJSON Feature (SPEC §4).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct Feature {
     #[serde(rename = "type")]
     pub type_: String,
@@ -119,6 +121,7 @@ impl Feature {
 
 /// Radargram linkage (SPEC §6).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct Source {
     /// The conceptual radargram; stable across reprocessing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -136,6 +139,7 @@ pub struct Source {
 
 /// Coordinate semantics and mappings (SPEC §7).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct Coordinates {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub space: Option<String>,
@@ -151,6 +155,14 @@ pub struct Coordinates {
 /// [`crate::validate`], which rejects anything else rather than
 /// reinterpreting it.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(
+    feature = "utoipa",
+    schema(
+        description = "Indexing conventions (SPEC §7.3). The permitted values are fixed, \
+                          and a validating reader rejects anything else."
+    )
+)]
 pub struct Convention {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<String>,
@@ -165,6 +177,7 @@ pub struct Convention {
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct Axes {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub x: Option<Axis>,
@@ -177,6 +190,7 @@ pub struct Axes {
 /// One axis: the units the geometry is stored in, plus any anchor mappings
 /// (SPEC §7.4).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct Axis {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub primary: Option<PrimaryAxis>,
@@ -205,6 +219,7 @@ impl Axis {
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct PrimaryAxis {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
@@ -222,6 +237,16 @@ pub struct PrimaryAxis {
 /// [`AnchorAxis::mapping`]. Keeping structural parsing separate from
 /// semantic validation is what lets an unusable mapping still round-trip.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(
+    feature = "utoipa",
+    schema(
+        description = "An anchor axis: a named, invariant quantity plus the mapping from \
+                          index to it (SPEC §7.4.2). The mapping's fields (SPEC §7.5) sit \
+                          alongside `name`, `unit` and `synthetic`; which of them are present \
+                          depends on `type`."
+    )
+)]
 pub struct AnchorAxis {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
