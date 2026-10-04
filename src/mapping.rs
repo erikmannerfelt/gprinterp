@@ -11,6 +11,11 @@ use std::fmt;
 
 /// A tiepoint in a [`Mapping::Tiepoints`] mapping.
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(
+    feature = "utoipa",
+    schema(description = "A tiepoint of a `tiepoints` mapping (SPEC §7.5).")
+)]
 pub struct Tiepoint {
     /// Index along the primary (index) axis.
     pub trace: f64,

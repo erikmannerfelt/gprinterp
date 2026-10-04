@@ -1,6 +1,6 @@
 [package]
 name = "gprinterp"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 description = "Reference implementation of the gprinterp GPR interpretation exchange format"
 license = "MIT"
@@ -13,6 +13,10 @@ categories = ["science", "parser-implementations"]
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 clap = { version = "4.5", features = ["derive"], optional = true }
+# OpenAPI schemas for the document types, for servers that describe an API
+# carrying gprinterp documents. `preserve_order` keeps fields in declaration
+# order, so a generated description reads like the structs.
+utoipa = { version = "6", features = ["preserve_order"], optional = true }
 
 [features]
 default = []
@@ -20,6 +24,13 @@ default = []
 # spec. The library is the product; this exists so a document can be checked
 # without writing a scratch program.
 cli = ["clap"]
+# `utoipa::ToSchema` for the document types, so a server can describe the
+# gprinterp documents in its OpenAPI description. Nothing else changes.
+utoipa = ["dep:utoipa"]
+
+[dev-dependencies]
+# Checks the generated schemas against the examples (`tests/schema.rs`).
+jsonschema = { version = "0.58", default-features = false }
 
 [[bin]]
 name = "gprinterp"
