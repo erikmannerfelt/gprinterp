@@ -189,26 +189,183 @@ fn a_different_time_zero_shifts_picks_vertically() {
     );
 }
 
+/// A document holding one feature of the given geometry.
+fn document_with(geometry: serde_json::Value) -> Document {
+    let mut doc = document(
+        vec![original_trace(0.0, 1200.0)],
+        vec![twtt(0.0, 0.4)],
+        &[[0.0, 0.0], [1.0, 0.0]],
+    );
+    doc.features[0].geometry = serde_json::from_value(geometry).unwrap();
+    doc
+}
+
+/// B keeps only original traces 500..=1199: index 0 in B is original 500.
+fn subset_target() -> RevisionAxes {
+    RevisionAxes {
+        x: vec![original_trace(500.0, 700.0)],
+        y: vec![twtt(0.0, 0.4)],
+    }
+}
+
 #[test]
-fn picks_outside_the_target_revision_are_dropped_not_clamped() {
-    // B keeps only traces 500..1200. The pick starts at original trace 210,
-    // which B does not contain. Clamping it to B's first trace would put the
-    // interpretation somewhere it was never drawn.
+fn a_line_crossing_the_edge_is_cut_where_it_crosses_not_dropped() {
+    // The pick starts at original trace 210, which B does not contain, and
+    // ends at 700, which it does. The part inside B is the line as drawn:
+    // it is cut at B's first trace, at the sample the line had reached
+    // there, rather than dropped whole or clamped.
     let doc = document(
         vec![original_trace(0.0, 1200.0)],
         vec![twtt(0.0, 0.4)],
         &[[210.0, 100.0], [700.0, 120.0]],
     );
+
+    let outcome = reanchor(&doc, &subset_target()).unwrap();
+    assert!(outcome.dropped.is_empty());
+    let crossing = 100.0 + 20.0 * (500.0 - 210.0) / (700.0 - 210.0);
+    assert_line_close(&outcome.document, &[(0.0, crossing), (200.0, 120.0)]);
+    assert_eq!(outcome.clipped.len(), 1);
+    let clipped = &outcome.clipped[0];
+    assert_eq!(clipped.id.as_deref(), Some("f-0001"));
+    assert_eq!(clipped.outside, 1);
+    assert!((clipped.beyond_x - 290.0).abs() < 1e-9);
+    assert_eq!(clipped.beyond_y, 0.0);
+}
+
+#[test]
+fn a_line_that_ends_just_past_the_edge_keeps_every_vertex_inside() {
+    // The common case: a line drawn to the edge of a 1200-trace radargram
+    // whose last vertex landed two traces past it. Every vertex inside is
+    // kept exactly, and the overshoot is measured, not hidden.
+    let doc = document(
+        vec![original_trace(0.0, 1200.0)],
+        vec![twtt(0.0, 0.4)],
+        &[[-2.0, 50.0], [600.0, 60.0], [1201.0, 70.0]],
+    );
     let target = RevisionAxes {
-        x: vec![original_trace(500.0, 700.0)],
+        x: vec![original_trace(0.0, 1200.0)],
         y: vec![twtt(0.0, 0.4)],
     };
 
     let outcome = reanchor(&doc, &target).unwrap();
+    let line = line_of(&outcome.document);
+    assert_eq!(line.len(), 3);
+    assert!((line[0].0 - 0.0).abs() < 1e-9);
+    assert!((line[1].0 - 600.0).abs() < 1e-9 && (line[1].1 - 60.0).abs() < 1e-9);
+    assert!((line[2].0 - 1199.0).abs() < 1e-9);
+    assert_eq!(outcome.clipped[0].outside, 2);
+    assert!((outcome.clipped[0].beyond_x - 2.0).abs() < 1e-9);
+}
+
+#[test]
+fn a_line_entirely_outside_the_target_is_dropped() {
+    let doc = document(
+        vec![original_trace(0.0, 1200.0)],
+        vec![twtt(0.0, 0.4)],
+        &[[210.0, 100.0], [400.0, 120.0]],
+    );
+
+    let outcome = reanchor(&doc, &subset_target()).unwrap();
     assert!(outcome.document.features.is_empty());
+    assert!(outcome.clipped.is_empty());
     assert_eq!(outcome.dropped.len(), 1);
     assert_eq!(outcome.dropped[0].id.as_deref(), Some("f-0001"));
     assert_eq!(outcome.dropped[0].label.as_deref(), Some("bed"));
+}
+
+#[test]
+fn a_line_that_leaves_and_comes_back_is_dropped_rather_than_split() {
+    // Inside, outside, inside again on y: two pieces, which one
+    // `LineString` cannot hold.
+    let doc = document(
+        vec![original_trace(0.0, 1200.0)],
+        vec![twtt(0.0, 0.4)],
+        &[[600.0, 0.0], [700.0, 0.0], [800.0, 0.0]],
+    );
+    let mut target = subset_target();
+    // A y axis bounded to samples 0..=99 that the middle vertex leaves.
+    target.y = vec![AnchorAxis {
+        name: "twtt".into(),
+        unit: Some("ns".into()),
+        type_: Some("tiepoints".into()),
+        points: Some(vec![
+            gprinterp::Tiepoint { trace: 0.0, x: 0.0 },
+            gprinterp::Tiepoint {
+                trace: 99.0,
+                x: 39.6,
+            },
+        ]),
+        ..Default::default()
+    }];
+    let mut doc = doc;
+    doc.features[0].geometry = Geometry::LineString(vec![
+        gprinterp::Position(vec![600.0, 50.0]),
+        gprinterp::Position(vec![700.0, 150.0]),
+        gprinterp::Position(vec![800.0, 50.0]),
+    ]);
+
+    let outcome = reanchor(&doc, &target).unwrap();
+    assert!(outcome.document.features.is_empty());
+    assert_eq!(outcome.dropped.len(), 1);
+}
+
+#[test]
+fn a_point_outside_the_target_is_dropped_not_clamped() {
+    // Clamping it to B's first trace would put the pick somewhere it was
+    // never made.
+    let doc = document_with(serde_json::json!({"type": "Point", "coordinates": [210.0, 100.0]}));
+    let outcome = reanchor(&doc, &subset_target()).unwrap();
+    assert!(outcome.document.features.is_empty());
+    assert_eq!(outcome.dropped.len(), 1);
+}
+
+#[test]
+fn a_multipoint_loses_only_the_points_outside() {
+    let doc = document_with(serde_json::json!({
+        "type": "MultiPoint",
+        "coordinates": [[210.0, 100.0], [600.0, 100.0], [700.0, 110.0]]
+    }));
+    let outcome = reanchor(&doc, &subset_target()).unwrap();
+    match &outcome.document.features[0].geometry {
+        Geometry::MultiPoint(ps) => assert_eq!(ps.len(), 2),
+        other => panic!("expected a MultiPoint, got {}", other.type_name()),
+    }
+    assert_eq!(outcome.clipped[0].outside, 1);
+}
+
+#[test]
+fn a_multilinestring_keeps_every_piece_inside() {
+    // One part crosses the edge and one is outside entirely: the first is
+    // cut, the second goes, and the feature stays.
+    let doc = document_with(serde_json::json!({
+        "type": "MultiLineString",
+        "coordinates": [
+            [[400.0, 100.0], [600.0, 100.0]],
+            [[100.0, 100.0], [200.0, 100.0]]
+        ]
+    }));
+    let outcome = reanchor(&doc, &subset_target()).unwrap();
+    match &outcome.document.features[0].geometry {
+        Geometry::MultiLineString(parts) => {
+            assert_eq!(parts.len(), 1);
+            assert!((parts[0][0].x().unwrap() - 0.0).abs() < 1e-9);
+            assert!((parts[0][1].x().unwrap() - 100.0).abs() < 1e-9);
+        }
+        other => panic!("expected a MultiLineString, got {}", other.type_name()),
+    }
+    assert_eq!(outcome.clipped[0].outside, 3);
+}
+
+#[test]
+fn a_line_inside_the_target_is_not_reported_as_clipped() {
+    let doc = document(
+        vec![original_trace(0.0, 1200.0)],
+        vec![twtt(0.0, 0.4)],
+        &[[600.0, 100.0], [700.0, 120.0]],
+    );
+    let outcome = reanchor(&doc, &subset_target()).unwrap();
+    assert!(outcome.clipped.is_empty());
+    assert_line_close(&outcome.document, &[(100.0, 100.0), (200.0, 120.0)]);
 }
 
 #[test]
@@ -562,6 +719,8 @@ fn a_shared_travel_time_axis_is_preferred_over_the_recording_clock() {
 
     let out = gprinterp::reanchor(&doc, &target).expect("relatable");
     assert_eq!(out.y_anchor, "twtt", "physics over cropping");
-    let y = out.document.features[0].geometry.positions()[0].y().unwrap();
+    let y = out.document.features[0].geometry.positions()[0]
+        .y()
+        .unwrap();
     assert!((y - 80.0).abs() < 1e-9, "carried through twtt: {y}");
 }

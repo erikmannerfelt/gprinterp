@@ -8,11 +8,18 @@
 //! rather than left to callers: no shared anchor axis means refusal, never a
 //! silent fall back to the raw index, and out-of-range coordinates are
 //! dropped and counted rather than clamped to the edge.
+//!
+//! A line is many coordinates, so a line that runs past the edge is cut
+//! where it crosses it rather than dropped whole: the part inside is the
+//! line exactly as drawn, and the part outside is reported in
+//! [`ReanchorOutcome::clipped`]. Dropping the whole line would lose every
+//! pick inside the revision because one end overshot it, which is common —
+//! a line drawn to the edge of a radargram easily ends a trace beyond it.
 
 use std::fmt;
 
 use crate::document::{AnchorAxis, Document, Feature};
-use crate::geometry::Position;
+use crate::geometry::{Geometry, Position};
 use crate::mapping::Mapping;
 
 /// The anchor axes a target revision offers.
@@ -112,8 +119,7 @@ pub const X_ANCHOR_PREFERENCE: [&str; 2] = ["original_trace", "trace_time"];
 /// unrelatable — and it relates nothing else. Preferring it over `twtt`
 /// would relate two revisions by a coincidence of cropping rather than by
 /// physics. See SPEC §8.5.
-pub const Y_ANCHOR_PREFERENCE: [&str; 3] =
-    ["twtt_normal_incidence", "twtt", "recording_time"];
+pub const Y_ANCHOR_PREFERENCE: [&str; 3] = ["twtt_normal_incidence", "twtt", "recording_time"];
 
 /// What re-anchoring did.
 #[derive(Debug, Clone, PartialEq)]
@@ -124,8 +130,14 @@ pub struct ReanchorOutcome {
     pub y_anchor: String,
     /// Features dropped because a coordinate fell outside the target
     /// revision — typically picked in a region the new revision subsets away
-    /// (SPEC §8.1).
+    /// (SPEC §8.1). A line is dropped only when none of it is inside, or
+    /// when it leaves and re-enters, since a `LineString` cannot hold two
+    /// pieces; one that crosses the edge is in [`Self::clipped`] instead.
     pub dropped: Vec<DroppedFeature>,
+    /// Features kept with part of them cut away at the edge of the target
+    /// revision: lines cut where they cross it, multi-points without the
+    /// points outside it.
+    pub clipped: Vec<ClippedFeature>,
     /// `true` when `y` was re-anchored across differing revisions, which
     /// SPEC §8.3 requires consumers to warn about and never present as
     /// exact.
@@ -137,6 +149,207 @@ pub struct DroppedFeature {
     pub index: usize,
     pub id: Option<String>,
     pub label: Option<String>,
+}
+
+/// A feature kept in part, and how much of it lay outside the target.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClippedFeature {
+    /// Its position in the input document's `features`.
+    pub index: usize,
+    pub id: Option<String>,
+    pub label: Option<String>,
+    /// How many of its stored coordinates fell outside the target revision.
+    pub outside: usize,
+    /// How far past the edge the farthest of those reached, in the target's
+    /// index units: traces for `x`, samples for `y`. Zero along an axis the
+    /// feature did not leave by.
+    ///
+    /// The distance is what tells an overshoot apart from a loss. A line
+    /// drawn to the edge that ends half a trace beyond it lost nothing
+    /// anybody picked; one that ran a hundred traces into a region the new
+    /// revision subsets away did.
+    pub beyond_x: f64,
+    pub beyond_y: f64,
+}
+
+/// The target revision's extent in index units. `None` on a side means
+/// unbounded: a regular mapping is defined everywhere (SPEC §7.5.1).
+#[derive(Debug, Clone, Copy)]
+struct Bounds {
+    x: Option<(f64, f64)>,
+    y: Option<(f64, f64)>,
+}
+
+impl Bounds {
+    fn past(range: Option<(f64, f64)>, v: f64) -> f64 {
+        match range {
+            Some((lo, _)) if v < lo => lo - v,
+            Some((_, hi)) if v > hi => v - hi,
+            _ => 0.0,
+        }
+    }
+
+    /// How far `p` lies past each edge, `(0, 0)` when inside.
+    fn beyond(&self, p: &Position) -> (f64, f64) {
+        (
+            Self::past(self.x, p.x().unwrap_or(0.0)),
+            Self::past(self.y, p.y().unwrap_or(0.0)),
+        )
+    }
+
+    fn contains(&self, p: &Position) -> bool {
+        self.beyond(p) == (0.0, 0.0)
+    }
+
+    /// The part of the segment `a`–`b` inside, as parameters `0 <= t0 <=
+    /// t1 <= 1` along it (Liang–Barsky), or `None` when none of it is.
+    fn clip_segment(&self, a: &Position, b: &Position) -> Option<(f64, f64)> {
+        let (ax, ay) = (a.x()?, a.y()?);
+        let (dx, dy) = (b.x()? - ax, b.y()? - ay);
+        let mut t0: f64 = 0.0;
+        let mut t1: f64 = 1.0;
+        let mut edge = |p: f64, q: f64| -> bool {
+            if p == 0.0 {
+                // Parallel to this edge: inside it entirely or not at all.
+                return q >= 0.0;
+            }
+            let t = q / p;
+            if p < 0.0 {
+                t0 = t0.max(t);
+            } else {
+                t1 = t1.min(t);
+            }
+            t0 <= t1
+        };
+        if let Some((lo, hi)) = self.x {
+            if !edge(-dx, ax - lo) || !edge(dx, hi - ax) {
+                return None;
+            }
+        }
+        if let Some((lo, hi)) = self.y {
+            if !edge(-dy, ay - lo) || !edge(dy, hi - ay) {
+                return None;
+            }
+        }
+        Some((t0, t1))
+    }
+}
+
+/// The point a fraction `t` of the way from `a` to `b`.
+///
+/// The endpoints are returned as they are rather than recomputed, so a
+/// vertex inside the target keeps its exact value and any elements beyond
+/// `x` and `y`.
+fn along(a: &Position, b: &Position, t: f64) -> Position {
+    if t <= 0.0 {
+        return a.clone();
+    }
+    if t >= 1.0 {
+        return b.clone();
+    }
+    let (ax, ay) = (a.x().unwrap_or(0.0), a.y().unwrap_or(0.0));
+    let (bx, by) = (b.x().unwrap_or(0.0), b.y().unwrap_or(0.0));
+    a.with_xy(ax + (bx - ax) * t, ay + (by - ay) * t)
+}
+
+/// The pieces of a line that lie inside `bounds`, each with at least two
+/// vertices.
+///
+/// The vertices inside are kept exactly; where the line crosses the edge, a
+/// vertex is added at the crossing. That vertex is on the line as drawn, so
+/// this is not clamping: clamping moves a coordinate to the edge and bends
+/// the line to get there, while this keeps the line and stops it.
+fn clip_line(line: &[Position], bounds: &Bounds) -> Vec<Vec<Position>> {
+    if line.len() < 2 {
+        return if line.iter().all(|p| bounds.contains(p)) && !line.is_empty() {
+            vec![line.to_vec()]
+        } else {
+            Vec::new()
+        };
+    }
+    let mut pieces: Vec<Vec<Position>> = Vec::new();
+    let mut current: Vec<Position> = Vec::new();
+    for pair in line.windows(2) {
+        let (a, b) = (&pair[0], &pair[1]);
+        // A segment that only touches the edge at one point adds nothing
+        // drawable, and would otherwise split the line in two.
+        match bounds.clip_segment(a, b).filter(|(t0, t1)| t1 > t0) {
+            Some((t0, t1)) => {
+                // Continuing the piece only when this segment starts where
+                // the last one ended inside; anything else is a new piece.
+                if t0 > 0.0 || current.is_empty() {
+                    if current.len() >= 2 {
+                        pieces.push(std::mem::take(&mut current));
+                    }
+                    current.clear();
+                    current.push(along(a, b, t0));
+                }
+                current.push(along(a, b, t1));
+                if t1 < 1.0 {
+                    pieces.push(std::mem::take(&mut current));
+                }
+            }
+            None => {
+                if current.len() >= 2 {
+                    pieces.push(std::mem::take(&mut current));
+                }
+                current.clear();
+            }
+        }
+    }
+    if current.len() >= 2 {
+        pieces.push(current);
+    }
+    pieces
+}
+
+/// How many of `positions` lie outside `bounds`, and how far the farthest
+/// reached past each edge.
+fn outside(positions: &[&Position], bounds: &Bounds) -> (usize, f64, f64) {
+    positions
+        .iter()
+        .map(|p| bounds.beyond(p))
+        .filter(|&(x, y)| x > 0.0 || y > 0.0)
+        .fold((0, 0.0_f64, 0.0_f64), |(n, bx, by), (x, y)| {
+            (n + 1, bx.max(x), by.max(y))
+        })
+}
+
+/// `geometry`, already in the target's index space, cut to `bounds`.
+///
+/// `None` when nothing of it is inside. Lines and multi-points are cut;
+/// a point, a polygon and a collection are all-or-nothing as before, since
+/// cutting an area at an edge is a different operation that nothing needs
+/// yet.
+fn clip(geometry: &Geometry, bounds: &Bounds) -> Option<Geometry> {
+    match geometry {
+        Geometry::LineString(line) => {
+            let mut pieces = clip_line(line, bounds);
+            // One piece is the line, cut. Two would need a second feature
+            // or a change of geometry type, and a reader that draws
+            // `LineString`s would then silently lose it: dropping and
+            // reporting it is the honest choice.
+            (pieces.len() == 1).then(|| Geometry::LineString(pieces.remove(0)))
+        }
+        Geometry::MultiLineString(lines) => {
+            let pieces: Vec<Vec<Position>> =
+                lines.iter().flat_map(|l| clip_line(l, bounds)).collect();
+            (!pieces.is_empty()).then_some(Geometry::MultiLineString(pieces))
+        }
+        Geometry::MultiPoint(points) => {
+            let kept: Vec<Position> = points
+                .iter()
+                .filter(|p| bounds.contains(p))
+                .cloned()
+                .collect();
+            (!kept.is_empty()).then_some(Geometry::MultiPoint(kept))
+        }
+        other => other
+            .positions()
+            .iter()
+            .all(|p| bounds.contains(p))
+            .then(|| other.clone()),
+    }
 }
 
 /// Apply `document` to a revision described by `target`.
@@ -179,14 +392,22 @@ pub fn reanchor(
         });
     }
 
-    let x_bounds = x_to.index_range();
-    let y_bounds = y_to.index_range();
+    let bounds = Bounds {
+        x: x_to.index_range(),
+        y: y_to.index_range(),
+    };
 
     let mut out = document.clone();
     let mut kept: Vec<Feature> = Vec::new();
     let mut dropped: Vec<DroppedFeature> = Vec::new();
+    let mut clipped: Vec<ClippedFeature> = Vec::new();
 
     for (index, feature) in document.features.iter().enumerate() {
+        // Carried first, cut second: whether a coordinate is inside is a
+        // question about the target's index space, and the cut has to be
+        // made there, where the line is straight between its vertices.
+        // Every mapping extrapolates (SPEC §7.5), so a coordinate outside
+        // still has a place to be cut from.
         let mut map_position = |position: &Position| -> Option<Position> {
             let (x, y) = (position.x()?, position.y()?);
             let new_x = x_to.invert(x_from.eval(x));
@@ -194,31 +415,35 @@ pub fn reanchor(
             if !new_x.is_finite() || !new_y.is_finite() {
                 return None;
             }
-            if let Some((lo, hi)) = x_bounds {
-                if new_x < lo || new_x > hi {
-                    return None;
-                }
-            }
-            if let Some((lo, hi)) = y_bounds {
-                if new_y < lo || new_y > hi {
-                    return None;
-                }
-            }
             Some(position.with_xy(new_x, new_y))
         };
-
-        match feature.geometry.try_map_positions(&mut map_position) {
-            Some(geometry) => {
-                let mut moved = feature.clone();
-                moved.geometry = geometry;
-                kept.push(moved);
-            }
-            None => dropped.push(DroppedFeature {
+        let drop = DroppedFeature {
+            index,
+            id: feature.id().map(str::to_string),
+            label: feature.label().map(str::to_string),
+        };
+        let Some(carried) = feature.geometry.try_map_positions(&mut map_position) else {
+            dropped.push(drop);
+            continue;
+        };
+        let Some(geometry) = clip(&carried, &bounds) else {
+            dropped.push(drop);
+            continue;
+        };
+        let (n_outside, beyond_x, beyond_y) = outside(&carried.positions(), &bounds);
+        if n_outside > 0 {
+            clipped.push(ClippedFeature {
                 index,
-                id: feature.id().map(str::to_string),
-                label: feature.label().map(str::to_string),
-            }),
+                id: drop.id,
+                label: drop.label,
+                outside: n_outside,
+                beyond_x,
+                beyond_y,
+            });
         }
+        let mut moved = feature.clone();
+        moved.geometry = geometry;
+        kept.push(moved);
     }
 
     out.features = kept;
@@ -227,6 +452,7 @@ pub fn reanchor(
         x_anchor: x_name,
         y_anchor: y_name,
         dropped,
+        clipped,
         y_is_approximate: true,
     })
 }

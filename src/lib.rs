@@ -62,7 +62,9 @@ pub use document::{
 };
 pub use geometry::{Geometry, Position};
 pub use mapping::{Mapping, MappingError, Tiepoint};
-pub use reanchor::{reanchor, ReanchorError, ReanchorOutcome, RevisionAxes};
+pub use reanchor::{
+    reanchor, ClippedFeature, DroppedFeature, ReanchorError, ReanchorOutcome, RevisionAxes,
+};
 pub use validate::{validate, Report, ValidationError, ValidationWarning};
 
 /// The `schema` string a conforming document uses.
