@@ -352,6 +352,18 @@ example, it was picked in a region B subsets away). Consumers SHOULD drop
 such coordinates and report how many were dropped, rather than clamping them
 to the edge.
 
+A line is many coordinates, and dropping one of them is not dropping the
+line. Where a line crosses the edge of revision B, consumers SHOULD cut it
+at the crossing: keep its vertices inside B unchanged, add a vertex where
+the line as drawn meets the edge, and drop the vertices outside. The added
+vertex lies on the line as drawn, so this is not clamping, which moves a
+coordinate to the edge and bends the line to get there. Consumers SHOULD
+report that the line was cut, and how far past the edge it reached, since a
+line drawn to the edge that overshoots it by a fraction of a trace has lost
+nothing, and one that ran into a region B subsets away has. A line whose
+inside part is in more than one piece MAY be dropped whole and reported as
+dropped, rather than changed into a different geometry type.
+
 ### 8.2 Recognized anchor axes
 
 For `x`, in decreasing order of preference:
