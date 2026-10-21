@@ -694,11 +694,13 @@ fn a_corrected_and_an_uncorrected_revision_relate_through_the_recording_clock() 
 }
 
 #[test]
-fn a_shared_travel_time_axis_is_preferred_over_the_recording_clock() {
-    // `recording_time` relates revisions by a coincidence of cropping.
-    // Where both sides know their travel time, that is the real physics
-    // and must win -- otherwise two revisions cropped identically but
-    // corrected differently would look identical.
+fn the_recording_clock_is_preferred_over_a_shared_travel_time_axis() {
+    // Same crop, time zero located 20 ns apart: at the onset of the direct
+    // wave on one revision and at its peak on the other. The data are the
+    // same samples on the same clock, so a feature belongs at the same
+    // sample; through `twtt` it would move 20 samples off the reflector it
+    // was drawn on, because the reflector's travel time changed with time
+    // zero and the feature's did not.
     let dt = 1.0;
     let doc = document_on(
         serde_json::json!({"anchor": [
@@ -712,13 +714,41 @@ fn a_shared_travel_time_axis_is_preferred_over_the_recording_clock() {
             "name": "trace_time", "unit": "s", "type": "regular", "t0": 0.0, "dt": 1.0
         }))
         .unwrap()],
-        // Same crop, different time zero: the two disagree about travel
-        // time by 20 ns and agree about the clock exactly.
-        y: vec![axis("twtt", 20.0, dt), axis("recording_time", 50.0, dt)],
+        y: vec![axis("twtt", -20.0, dt), axis("recording_time", 50.0, dt)],
     };
 
     let out = gprinterp::reanchor(&doc, &target).expect("relatable");
-    assert_eq!(out.y_anchor, "twtt", "physics over cropping");
+    assert_eq!(out.y_anchor, "recording_time");
+    let y = out.document.features[0].geometry.positions()[0]
+        .y()
+        .unwrap();
+    // Through `twtt` this would be 120.
+    assert!((y - 100.0).abs() < 1e-9, "carried through the clock: {y}");
+}
+
+#[test]
+fn travel_time_is_used_where_either_side_has_no_recording_clock() {
+    // A per-trace crop or an antenna-separation correction that cannot be
+    // inverted leaves a revision without a regular clock; travel time is
+    // then the only shared axis, and the order changes nothing.
+    let dt = 1.0;
+    let doc = document_on(
+        serde_json::json!({"anchor": [
+            {"name": "twtt", "unit": "ns", "type": "regular", "t0": 0.0, "dt": dt},
+            {"name": "recording_time", "unit": "ns", "type": "regular", "t0": 50.0, "dt": dt},
+        ]}),
+        &[[10.0, 100.0]],
+    );
+    let target = gprinterp::RevisionAxes {
+        x: vec![serde_json::from_value(serde_json::json!({
+            "name": "trace_time", "unit": "s", "type": "regular", "t0": 0.0, "dt": 1.0
+        }))
+        .unwrap()],
+        y: vec![axis("twtt", 20.0, dt)],
+    };
+
+    let out = gprinterp::reanchor(&doc, &target).expect("relatable");
+    assert_eq!(out.y_anchor, "twtt");
     let y = out.document.features[0].geometry.positions()[0]
         .y()
         .unwrap();

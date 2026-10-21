@@ -377,11 +377,11 @@ For `y`, in decreasing order of preference:
 
 | `name` | Unit | Notes |
 |---|---|---|
+| `recording_time` | `ns` | Time on the original recording's clock, measured from the first sample the instrument wrote. **Not** travel time: its origin is wherever the instrument happened to trigger, not the transmitted pulse. See §8.5. |
 | `twtt_normal_incidence` | `ns` | Normal-incidence (zero-offset) two-way travel time: the time a coincident source and receiver would have recorded. Produced by antenna-separation / NMO correction, which resamples onto this quantity. |
 | `twtt` | `ns` | Two-way travel time as recorded, between a source and a receiver separated by the antenna offset. See §8.3. |
-| `recording_time` | `ns` | Time on the original recording's clock, measured from the first sample the instrument wrote. **Not** travel time: its origin is wherever the instrument happened to trigger, not the transmitted pulse. See §8.5. |
 
-The first two are different physical quantities and MUST NOT be treated as
+`twtt_normal_incidence` and `twtt` are different physical quantities and MUST NOT be treated as
 interchangeable. A revision that has had antenna-separation correction
 applied does not share a `y` anchor with one that has not, unless it also
 emits `twtt` per §8.3.
@@ -401,9 +401,16 @@ available for archival data that carries no timing at all. It is the weaker
 choice precisely where trace identity stops being meaningful — after
 resampling — which is where `trace_time` remains well defined.
 
-`recording_time` is last because it is not a physical quantity of the
-subsurface at all. It is preferred over *nothing*, and that is the case it
-exists for: see §8.5.
+`recording_time` is first because, within one recording, it is the
+identity of a sample, as `original_trace` is on `x`: two revisions place a
+feature on the same recorded data however differently they located time
+zero. A travel time is measured from time zero, so when two revisions put
+time zero in different places (a different picking method, the onset of
+the direct wave rather than its peak) the same reflector has a different
+travel time in each, and re-anchoring through it moves features off the
+reflectors they were drawn on. It is comparable only between revisions of
+one recording (§8.5), which is what re-anchoring relates; where either side
+does not emit it, a travel-time axis is used as before.
 
 ### 8.3 Limits of `twtt` as a `y` anchor
 
@@ -478,11 +485,14 @@ Two constraints follow, and both are load-bearing:
   event, so values from two separate acquisitions mean nothing to each
   other. Consumers relating revisions of a single radargram id are within
   this constraint; anything else is not.
-- It is **last** in the preference order. Where a genuine travel-time
-  anchor is shared, that is the one to use: it is invariant under
-  operations that change the crop, which `recording_time` is not. Using
-  `recording_time` where `twtt` was available would relate two revisions
-  by a coincidence of cropping rather than by physics.
+- It is **first** in the preference order (§8.2), and a producer MUST NOT
+  emit it as `regular` unless every sample of every trace sits at
+  `t0 + i * dt` on the clock. An operation that moves data in time without
+  a uniform crop (aligning each trace on its own time zero, a static or
+  topographic shift written into the data) breaks that; so does a
+  resampling in time, which is described by `tiepoints` instead or not at
+  all. A wrong `recording_time` now wins over a correct travel time, so
+  omitting it is the safe failure.
 
 A consumer re-anchoring through `recording_time` MUST treat the result the
 way §8.3 requires for `twtt`: the coordinates are placed correctly, and any
