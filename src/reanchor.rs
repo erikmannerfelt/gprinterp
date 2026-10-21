@@ -111,15 +111,18 @@ pub const X_ANCHOR_PREFERENCE: [&str; 2] = ["original_trace", "trace_time"];
 /// because interpolating between the two would be silently wrong rather
 /// than approximate.
 ///
-/// `recording_time` is last, and is not a travel time at all: it is the
-/// original recording's clock, whose origin is wherever the instrument
-/// triggered. It relates two revisions of one recording exactly — including
-/// the common case where one has had a time-zero correction and the other
-/// has not, which share no travel-time axis and would otherwise be
-/// unrelatable — and it relates nothing else. Preferring it over `twtt`
-/// would relate two revisions by a coincidence of cropping rather than by
-/// physics. See SPEC §8.5.
-pub const Y_ANCHOR_PREFERENCE: [&str; 3] = ["twtt_normal_incidence", "twtt", "recording_time"];
+/// `recording_time` comes before both, and is not a travel time at all: it
+/// is the original recording's clock, whose origin is wherever the
+/// instrument triggered. Within one recording that makes it the identity of
+/// a sample, as `original_trace` is on `x`: it places a feature on the same
+/// recorded data however the two revisions located time zero. A travel
+/// time does not. Two revisions that put time zero at the onset and at the
+/// peak of the direct wave give one reflector two travel times, and
+/// re-anchoring by travel time moves features off the reflectors they were
+/// drawn on. It also relates a revision with a time-zero correction to one
+/// without, which share no travel time. It relates nothing across
+/// recordings, which re-anchoring never does (SPEC §8.5).
+pub const Y_ANCHOR_PREFERENCE: [&str; 3] = ["recording_time", "twtt_normal_incidence", "twtt"];
 
 /// What re-anchoring did.
 #[derive(Debug, Clone, PartialEq)]
